@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PixGuard</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --ink: #14202b; --muted: #5b6b7a; --line: #dde3e9;
+    --brand: #0e8a8c; --brand-ink: #ffffff; --brand-soft: #e3f4f4;
+    --ok: #1d8a4c; --ok-soft: #e4f5ea; --warn: #b7791f; --warn-soft: #fdf3e1;
+    --bad: #c53030; --bad-soft: #fde8e8; --code: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f151b; --card: #18212a; --ink: #e6edf3; --muted: #93a4b4; --line: #2a3642;
+      --brand: #2bb3b5; --brand-ink: #061a1a; --brand-soft: #123132;
+      --ok: #4cc27f; --ok-soft: #12301f; --warn: #e0a84a; --warn-soft: #33270f;
+      --bad: #f07070; --bad-soft: #3a1717; --code: #0d1317;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); }
+  .topo { max-width: 1180px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .marca { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 22px; }
+  .marca svg { width: 34px; height: 34px; }
+  .marca small { display: block; font-weight: 400; font-size: 13px; color: var(--muted); }
+  nav { display: flex; gap: 6px; margin-left: auto; }
+  nav button { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600;
+               padding: 9px 16px; border-radius: 999px; cursor: pointer; }
+  nav button.ativo { background: var(--brand-soft); color: var(--brand); }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 40px; }
+  .aba { display: none; } .aba.ativa { display: block; }
+  .grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 20px; }
+  .grade.larga { grid-template-columns: minmax(0, .75fr) minmax(0, 1.75fr); }
+  td.acoes { white-space: nowrap; }
+  @media (max-width: 860px) { .grade, .grade.larga { grid-template-columns: 1fr; } nav { margin-left: 0; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  h2 { font-size: 18px; margin: 0 0 14px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); font-weight: 600; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
+  select, input { width: 100%; padding: 10px 12px; font: inherit; color: var(--ink); background: var(--bg);
+                  border: 1px solid var(--line); border-radius: 10px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 10px;
+         padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn-pri { background: var(--brand); color: var(--brand-ink); }
+  .btn-sec { background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+  .btn-bad { background: var(--bad); color: #fff; }
+  .btn-ok { background: var(--ok); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: wait; }
+  .linha { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .exemplos { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); }
+  .exemplos p { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+  .exemplos .btn { padding: 7px 12px; font-size: 14px; }
+  .vazio { color: var(--muted); text-align: center; padding: 60px 10px; }
+  .risco { display: flex; gap: 20px; align-items: center; }
+  .medidor { position: relative; width: 132px; height: 132px; flex: none; }
+  .medidor svg { width: 132px; height: 132px; transform: rotate(-90deg); }
+  .medidor .num { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+  .medidor .num b { font-size: 34px; line-height: 1; display: block; }
+  .medidor .num span { font-size: 12px; color: var(--muted); }
+  .nivel { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  .nivel.ALTO { color: var(--bad); } .nivel.MEDIO { color: var(--warn); } .nivel.BAIXO { color: var(--ok); }
+  .faixa { padding: 12px 14px; border-radius: 10px; margin-top: 14px; font-weight: 600; }
+  .faixa.ALTO { background: var(--bad-soft); color: var(--bad); }
+  .faixa.MEDIO { background: var(--warn-soft); color: var(--warn); }
+  .faixa.BAIXO { background: var(--ok-soft); color: var(--ok); }
+  .dados { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; margin: 0; }
+  .dados dt { color: var(--muted); } .dados dd { margin: 0; font-weight: 600; }
+  .regra { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+  .regra .cod { font-weight: 700; background: var(--brand-soft); color: var(--brand); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+  .regra .pts { margin-left: auto; font-weight: 700; white-space: nowrap; }
+  .regra small { display: block; color: var(--muted); }
+  .aviso { margin-top: 14px; padding: 14px; border-radius: 10px; }
+  .aviso.erro { background: var(--bad-soft); color: var(--bad); }
+  .aviso.sucesso { background: var(--ok-soft); color: var(--ok); }
+  .aviso code { display: block; margin-top: 8px; padding: 8px 10px; background: var(--code); color: var(--ink);
+                border-radius: 8px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .tabela { overflow-x: auto; }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .tag.CONCLUIDA, .tag.CONFIRMADA { background: var(--bad-soft); color: var(--bad); }
+  .tag.CANCELADA, .tag.IMPROCEDENTE { background: var(--ok-soft); color: var(--ok); }
+  .tag.EM_ANALISE { background: var(--warn-soft); color: var(--warn); }
+  .tag.normal { background: var(--bg); color: var(--muted); }
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+  @media (max-width: 860px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .kpi span { font-size: 13px; color: var(--muted); }
+  .kpi b { display: block; font-size: 26px; margin-top: 4px; }
+  .kpi.destaque { border-color: var(--brand); background: var(--brand-soft); }
+  .legenda { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  #grafico svg { width: 100%; height: auto; }
+  .mini { padding: 5px 10px; font-size: 13px; }
+  .oculto { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="topo">
+    <div class="marca">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3 6 9v10c0 9 6 15.5 14 18 8-2.5 14-9 14-18V9L20 3Z" fill="var(--brand)"/><path d="m13 20 5 5 9-10" fill="none" stroke="var(--brand-ink)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>PixGuard<small>Prote&ccedil;&atilde;o contra golpes de Pix &middot; prot&oacute;tipo A3</small></div>
+    </div>
+    <nav>
+      <button data-aba="pix" class="ativo">Fazer Pix</button>
+      <button data-aba="denuncias">Den&uacute;ncias</button>
+      <button data-aba="painel">Painel</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- ================= FAZER PIX ================= -->
+  <section id="aba-pix" class="aba ativa">
+    <div class="grade">
+      <div class="card">
+        <h2>Novo Pix</h2>
+        <label for="origem">Quem est&aacute; pagando</label>
+        <select id="origem"></select>
+        <label for="chave">Chave Pix de destino</label>
+        <select id="chave"></select>
+        <label for="valor">Valor (R$)</label>
+        <input id="valor" type="number" step="0.01" value="150.00">
+        <div class="linha">
+          <button class="btn btn-pri" id="btn-verificar">Verificar com PixGuard</button>
+        </div>
+        <div class="exemplos">
+          <p>Exemplos prontos para a apresenta&ccedil;&atilde;o:</p>
+          <div class="linha" style="margin-top:0">
+            <button class="btn btn-sec" data-ex="7,10,120">Pix normal</button>
+            <button class="btn btn-sec" data-ex="12,51,1800">Pix para golpista</button>
+            <button class="btn btn-sec" data-ex="7,10,-50">Valor inv&aacute;lido</button>
+            <button class="btn btn-sec" data-ex="7,7,100">Pix para si mesmo</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="resultado">
+        <div class="vazio">Escolha o pagador, a chave e o valor, e clique em <b>Verificar com PixGuard</b>.<br>
+          O PixGuard consulta o banco de dados e calcula o risco <b>antes</b> de o dinheiro sair.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DENUNCIAS ================= -->
+  <section id="aba-denuncias" class="aba">
+    <div class="grade larga">
+      <div class="card">
+        <h2>Registrar den&uacute;ncia</h2>
+        <label for="den-tx">N&uacute;mero do Pix</label>
+        <input id="den-tx" type="number" placeholder="ex.: 3203">
+        <label for="den-tipo">Tipo de golpe</label>
+        <select id="den-tipo">
+          <option value="FALSO_PARENTE">Falso parente ("troquei de n&uacute;mero")</option>
+          <option value="FALSA_CENTRAL">Falsa central do banco</option>
+          <option value="LINK_FALSO">Link falso</option>
+          <option value="FALSA_VENDA">Falsa venda</option>
+          <option value="OUTRO">Outro</option>
+        </select>
+        <div id="den-dominio-box" class="oculto">
+          <label for="den-dominio">Site do link falso</label>
+          <input id="den-dominio" placeholder="ex.: pix-premiado.example">
+        </div>
+        <div class="linha"><button class="btn btn-pri" id="btn-denunciar">Registrar den&uacute;ncia</button></div>
+        <div id="den-msg"></div>
+        <p style="font-size:13px;color:var(--muted);margin-top:18px">A den&uacute;ncia entra como <b>Em an&aacute;lise</b>.
+          S&oacute; depois que o suporte a <b>confirma</b> ela passa a pesar no risco da chave (regra R01).</p>
+      </div>
+      <div class="card">
+        <h2>Den&uacute;ncias recentes</h2>
+        <div class="tabela" id="lista-denuncias"><div class="vazio">Carregando...</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PAINEL ================= -->
+  <section id="aba-painel" class="aba">
+    <div class="kpis" id="kpis"></div>
+    <div class="grade">
+      <div class="card">
+        <h2>Tentativas de golpe por semana</h2>
+        <div class="legenda"><span><i style="background:var(--bad)"></i>Concretizados</span><span><i style="background:var(--ok)"></i>Evitados pelo alerta</span></div>
+        <div id="grafico"></div>
+        <p style="font-size:13px;color:var(--muted);margin:8px 0 0">O PixGuard entrou em opera&ccedil;&atilde;o na semana de 09/11.</p>
+        <h3>Chaves mais denunciadas</h3>
+        <div class="tabela" id="top"></div>
+      </div>
+      <div class="card">
+        <h2>&Uacute;ltimos Pix registrados</h2>
+        <div class="tabela" id="ultimos"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nomes = { CONCLUIDA: 'Concluído', CANCELADA: 'Cancelado', BLOQUEADA: 'Bloqueado',
+  CONFIRMADA: 'Confirmada', EM_ANALISE: 'Em análise', IMPROCEDENTE: 'Improcedente',
+  FALSO_PARENTE: 'Falso parente', FALSA_CENTRAL: 'Falsa central', LINK_FALSO: 'Link falso', FALSA_VENDA: 'Falsa venda', OUTRO: 'Outro' };
+const nivelTexto = { ALTO: 'Risco ALTO', MEDIO: 'Risco MÉDIO', BAIXO: 'Risco BAIXO' };
+const nivelConselho = {
+  ALTO: 'Provável golpe. Recomendamos NÃO enviar este Pix.',
+  MEDIO: 'Atenção: confirme com quem vai receber antes de enviar.',
+  BAIXO: 'Nenhum sinal relevante de golpe. Pode seguir.' };
+const corNivel = { ALTO: 'var(--bad)', MEDIO: 'var(--warn)', BAIXO: 'var(--ok)' };
+
+async function api(caminho, corpo) {
+  const r = await fetch(caminho, corpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) } : {});
+  const j = await r.json().catch(() => ({ erro: 'Resposta inválida do servidor.' }));
+  if (!r.ok) { const e = new Error(j.erro || 'Erro'); e.mysql = j.erro_mysql; e.detalhe = j.detalhe; throw e; }
+  return j;
+}
+function caixaErro(e) {
+  return `<div class="aviso erro"><b>${e.mysql ? 'O banco de dados recusou: ' : ''}${esc(e.message)}</b>` +
+    (e.mysql ? `<code>${esc(e.mysql)}</code>` : '') + (e.detalhe ? `<code>${esc(e.detalhe)}</code>` : '') + `</div>`;
+}
+
+// ---------- abas ----------
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => abrirAba(b.dataset.aba));
+function abrirAba(nome) {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('ativo', x.dataset.aba === nome));
+  document.querySelectorAll('.aba').forEach(x => x.classList.toggle('ativa', x.id === 'aba-' + nome));
+  if (nome === 'painel') carregarPainel();
+  if (nome === 'denuncias') carregarDenuncias();
+}
+
+// ---------- fazer Pix ----------
+let ultimoPedido = null;
+async function carregarOpcoes() {
+  try {
+    const o = await api('/api/opcoes');
+    $('#origem').innerHTML = o.contas.map(c => `<option value="${c.id}">${esc(c.apelido)} · ${esc(c.banco)}</option>`).join('');
+    $('#chave').innerHTML = o.chaves.map(c => `<option value="${c.id}">${esc(c.chave)} · ${esc(c.apelido)} (${esc(c.tipo)})</option>`).join('');
+    $('#origem').value = 7; $('#chave').value = 10;
+  } catch (e) { $('#resultado').innerHTML = caixaErro(e); }
+}
+document.querySelectorAll('[data-ex]').forEach(b => b.onclick = () => {
+  const [o, k, v] = b.dataset.ex.split(',');
+  $('#origem').value = o; $('#chave').value = k; $('#valor').value = v;
+  verificar();
+});
+$('#btn-verificar').onclick = verificar;
+
+async function verificar() {
+  const pedido = { origem: $('#origem').value, chave: $('#chave').value, valor: $('#valor').value };
+  const btn = $('#btn-verificar'); btn.disabled = true;
+  $('#resultado').innerHTML = '<div class="vazio">Consultando o banco de dados...</div>';
+  try {
+    const r = await api('/api/verificar', pedido);
+    ultimoPedido = pedido;
+    mostrarRisco(r, pedido);
+  } catch (e) { $('#resultado').innerHTML = caixaErro(e); }
+  btn.disabled = false;
+}
+
+function medidor(score, nivel) {
+  const c = 2 * Math.PI * 54, cheio = c * score / 100;
+  return `<div class="medidor"><svg viewBox="0 0 132 132"><circle cx="66" cy="66" r="54" fill="none" stroke="var(--line)" stroke-width="12"/>
+    ${score > 0 ? `<circle cx="66" cy="66" r="54" fill="none" stroke="${corNivel[nivel]}" stroke-width="12" stroke-linecap="round"
+      stroke-dasharray="${cheio} ${c}"/>` : ''}</svg><div class="num"><div><b>${score}</b><span>de 100</span></div></div></div>`;
+}
+
+function mostrarRisco(r, pedido) {
+  const d = r.destino;
+  const regras = r.regras.length
+    ? r.regras.map(x => `<div class="regra"><span class="cod">${x.codigo}</span><div>${esc(x.descricao)}<small>${esc(x.detalhe)}</small></div><span class="pts">+${x.pontos}</span></div>`).join('')
+    : '<p style="color:var(--muted);font-size:14px">Nenhuma regra de risco foi acionada.</p>';
+  const botoes = r.nivel === 'BAIXO'
+    ? `<button class="btn btn-ok" data-decisao="CONCLUIDA">Confirmar Pix de ${brl(pedido.valor)}</button>`
+    : `<button class="btn btn-ok" data-decisao="CANCELADA">Desistir do Pix (recomendado)</button>
+       <button class="btn btn-sec" data-decisao="CONCLUIDA">Enviar mesmo assim</button>`;
+  $('#resultado').innerHTML = `
+    <div class="risco">${medidor(r.score, r.nivel)}
+      <div><p class="nivel ${r.nivel}">${nivelTexto[r.nivel]}</p>
+        <div style="color:var(--muted);font-size:14px">${esc(d.pagador)} → ${esc(d.titular)} · ${brl(pedido.valor)}</div></div></div>
+    <div class="faixa ${r.nivel}">${nivelConselho[r.nivel]}</div>
+    <h3>Quem vai receber</h3>
+    <dl class="dados">
+      <dt>Chave</dt><dd>${esc(d.chave)} (${esc(d.tipo_chave)})</dd>
+      <dt>Titular</dt><dd>${esc(d.titular)} · ${esc(d.banco)}</dd>
+      <dt>Conta aberta em</dt><dd>${esc(d.conta_aberta_em)} (${d.idade_conta_dias} dias)</dd>
+      <dt>Denúncias</dt><dd>${d.den_confirmadas} confirmada(s), ${d.den_em_analise} em análise</dd>
+      <dt>Pagadores (14 dias)</dt><dd>${d.pagadores_14d} pessoa(s) diferente(s)</dd>
+    </dl>
+    <h3>Regras acionadas</h3>${regras}
+    <div class="linha">${botoes}</div><div id="envio-msg"></div>`;
+  document.querySelectorAll('[data-decisao]').forEach(b => b.onclick = () => enviar(b.dataset.decisao));
+}
+
+async function enviar(decisao) {
+  document.querySelectorAll('[data-decisao]').forEach(b => b.disabled = true);
+  try {
+    const r = await api('/api/enviar', { ...ultimoPedido, decisao });
+    const t = r.transacao;
+    const txt = t.status === 'CANCELADA'
+      ? `Pix cancelado. O dinheiro não saiu da conta.`
+      : `Pix enviado.`;
+    $('#envio-msg').innerHTML = `<div class="aviso sucesso"><b>${txt}</b><br>
+      Gravado no MySQL como Pix nº <b>${t.transacao_id}</b> (status ${t.status}, score ${t.score_risco}, ${t.alertas_gravados} alerta(s) gravado(s)).
+      ${t.status === 'CONCLUIDA' ? `<div class="linha"><button class="btn btn-sec mini" onclick="irDenunciar(${t.transacao_id})">Foi golpe? Denunciar este Pix</button></div>` : ''}</div>`;
+  } catch (e) {
+    $('#envio-msg').innerHTML = caixaErro(e);
+    document.querySelectorAll('[data-decisao]').forEach(b => b.disabled = false);
+  }
+}
+
+// ---------- denuncias ----------
+function irDenunciar(id) { abrirAba('denuncias'); $('#den-tx').value = id; $('#den-msg').innerHTML = ''; $('#den-tx').focus(); }
+$('#den-tipo').onchange = () => $('#den-dominio-box').classList.toggle('oculto', $('#den-tipo').value !== 'LINK_FALSO');
+$('#btn-denunciar').onclick = async () => {
+  const b = $('#btn-denunciar'); b.disabled = true;
+  try {
+    const r = await api('/api/denunciar', { transacao: $('#den-tx').value, tipo: $('#den-tipo').value,
+      dominio: $('#den-tipo').value === 'LINK_FALSO' ? $('#den-dominio').value : '' });
+    $('#den-msg').innerHTML = `<div class="aviso sucesso"><b>Denúncia nº ${r.denuncia_id} registrada.</b> Ela aparece na lista ao lado como Em análise.</div>`;
+    carregarDenuncias();
+  } catch (e) { $('#den-msg').innerHTML = caixaErro(e); }
+  b.disabled = false;
+};
+async function carregarDenuncias() {
+  try {
+    const r = await api('/api/denuncias');
+    $('#lista-denuncias').innerHTML = `<table><thead><tr><th>Nº</th><th>Quando</th><th>Vítima</th><th>Chave</th><th>Golpe</th><th class="n">Valor</th><th>Status</th><th></th></tr></thead><tbody>` +
+      r.denuncias.map(d => `<tr><td>${d.id}</td><td>${esc(d.quando)}</td><td>${esc(d.vitima)}</td><td>${esc(d.chave)}</td>
+        <td>${nomes[d.tipo_golpe]}${d.dominio_link ? `<br><small style="color:var(--muted)">${esc(d.dominio_link)}</small>` : ''}</td>
+        <td class="n">${brl(d.valor)}</td><td><span class="tag ${d.status}">${nomes[d.status]}</span></td>
+        <td class="acoes">${d.status === 'EM_ANALISE' ? `<button class="btn btn-bad mini" onclick="mudarStatus(${d.id},'CONFIRMADA')">Confirmar</button>
+            <button class="btn btn-sec mini" onclick="mudarStatus(${d.id},'IMPROCEDENTE')">Improcedente</button>` : ''}</td></tr>`).join('') + '</tbody></table>';
+  } catch (e) { $('#lista-denuncias').innerHTML = caixaErro(e); }
+}
+async function mudarStatus(id, status) {
+  try { await api('/api/denuncia-status', { id, status }); carregarDenuncias(); }
+  catch (e) { $('#den-msg').innerHTML = caixaErro(e); }
+}
+
+// ---------- painel ----------
+async function carregarPainel() {
+  try {
+    const p = await api('/api/painel');
+    const k = p.kpi;
+    $('#kpis').innerHTML = `
+      <div class="kpi"><span>Pix registrados</span><b>${Number(k.total_pix).toLocaleString('pt-BR')}</b></div>
+      <div class="kpi"><span>Golpes confirmados</span><b>${k.golpes_confirmados}</b></div>
+      <div class="kpi destaque"><span>Valor protegido pelos alertas</span><b>${brl(k.valor_protegido)}</b></div>
+      <div class="kpi"><span>Desistiram após o alerta</span><b>${String(k.taxa_desistencia).replace('.', ',')}%</b></div>`;
+    desenharGrafico(p.semanas);
+    $('#top').innerHTML = `<table><thead><tr><th>Chave</th><th>Titular</th><th class="n">Golpes</th><th class="n">Prejuízo</th></tr></thead><tbody>` +
+      p.top.map(t => `<tr><td>${esc(t.chave)}</td><td>${esc(t.titular)}</td><td class="n">${t.golpes}</td><td class="n">${brl(t.prejuizo)}</td></tr>`).join('') + '</tbody></table>';
+    $('#ultimos').innerHTML = `<table><thead><tr><th>Nº</th><th>Quando</th><th>De → Para</th><th class="n">Valor</th><th class="n">Risco</th><th>Status</th><th></th></tr></thead><tbody>` +
+      p.ultimos.map(u => `<tr><td>${u.id}</td><td>${esc(u.quando)}</td><td>${esc(u.pagador)} → ${esc(u.recebedor)}<br><small style="color:var(--muted)">${esc(u.chave)}</small></td>
+        <td class="n">${brl(u.valor)}</td><td class="n">${u.score_risco}</td><td><span class="tag ${u.status === 'CONCLUIDA' && Number(u.score_risco) < 60 && Number(u.denunciado) === 0 ? 'normal' : u.status}">${nomes[u.status]}</span></td>
+        <td>${u.status === 'CONCLUIDA' && Number(u.denunciado) === 0 ? `<button class="btn btn-sec mini" onclick="irDenunciar(${u.id})">Denunciar</button>` : ''}</td></tr>`).join('') + '</tbody></table>';
+  } catch (e) { $('#kpis').innerHTML = caixaErro(e); }
+}
+
+function desenharGrafico(semanas) {
+  const W = 560, H = 260, esq = 36, base = 220, topo = 20;
+  const max = Math.max(1, ...semanas.map(s => Number(s.evitados) + Number(s.concretizados)));
+  const passo = Math.ceil(max / 4 / 10) * 10 || 10;
+  const teto = passo * 4;
+  const y = v => base - (v / teto) * (base - topo);
+  const larg = (W - esq - 10) / semanas.length, barra = Math.min(56, larg * 0.6);
+  let g = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = passo * i;
+    g += `<line x1="${esq}" x2="${W - 6}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>
+          <text x="${esq - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12" fill="var(--muted)">${v}</text>`;
+  }
+  semanas.forEach((s, i) => {
+    const x = esq + larg * i + (larg - barra) / 2, c = Number(s.concretizados), e = Number(s.evitados);
+    g += `<rect x="${x}" y="${y(c)}" width="${barra}" height="${base - y(c)}" fill="var(--bad)" rx="3"><title>${c} concretizados</title></rect>
+          <rect x="${x}" y="${y(c + e)}" width="${barra}" height="${y(c) - y(c + e)}" fill="var(--ok)" rx="3"><title>${e} evitados</title></rect>
+          <text x="${x + barra / 2}" y="${y(c + e) - 6}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--ink)">${c + e}</text>
+          <text x="${x + barra / 2}" y="${base + 18}" text-anchor="middle" font-size="12" fill="var(--muted)">${esc(s.semana)}</text>`;
+  });
+  $('#grafico').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Tentativas de golpe por semana">${g}</svg>`;
+}
+
+carregarOpcoes();
+</script>
+</body>
+</html>

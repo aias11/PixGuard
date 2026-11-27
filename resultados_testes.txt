@@ -1,0 +1,250 @@
+﻿--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- PixGuard - 05_qualidade.sql : verificacoes de qualidade dos dados
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Parte A: auditorias (devem retornar 0 problemas)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Parte B: testes de rejeicao (cada dado invalido deve ser rejeitado)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Parte A ---------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT 'unicidade: end_to_end_id duplicado' AS verificacao,
+       COUNT(*) - COUNT(DISTINCT end_to_end_id) AS problemas FROM transacao
+UNION ALL
+SELECT 'unicidade: CPF (hash) duplicado',
+       COUNT(*) - COUNT(DISTINCT cpf_hash) FROM usuario
+UNION ALL
+SELECT 'consistencia: chave da denuncia diferente da chave do Pix',
+       COUNT(*) FROM denuncia d JOIN transacao t ON t.id = d.transacao_id
+       WHERE d.chave_denunciada_id <> t.chave_destino_id
+UNION ALL
+SELECT 'consistencia: chave Pix nao pertence a conta de destino',
+       COUNT(*) FROM transacao t JOIN chave_pix c ON c.id = t.chave_destino_id
+       WHERE c.conta_id <> t.conta_destino_id
+UNION ALL
+SELECT 'validade: denuncia registrada antes do Pix',
+       COUNT(*) FROM denuncia d JOIN transacao t ON t.id = d.transacao_id
+       WHERE d.data_denuncia < t.data_hora
+UNION ALL
+SELECT 'atualidade: transacao com data futura',
+       COUNT(*) FROM transacao WHERE data_hora > NOW()
+UNION ALL
+SELECT 'completude: golpe LINK_FALSO sem dominio',
+       COUNT(*) FROM denuncia WHERE tipo_golpe = 'LINK_FALSO' AND dominio_link IS NULL
+UNION ALL
+SELECT 'validade: alerta em Pix cancelado marcado como prosseguiu',
+       COUNT(*) FROM alerta a JOIN transacao t ON t.id = a.transacao_id
+       WHERE t.status = 'CANCELADA' AND a.usuario_prosseguiu = TRUE
+--------------
+
++-----------------------------------------------------------+-----------+
+| verificacao                                               | problemas |
++-----------------------------------------------------------+-----------+
+| unicidade: end_to_end_id duplicado                        |         0 |
+| unicidade: CPF (hash) duplicado                           |         0 |
+| consistencia: chave da denuncia diferente da chave do Pix |         0 |
+| consistencia: chave Pix nao pertence a conta de destino   |         0 |
+| validade: denuncia registrada antes do Pix                |         0 |
+| atualidade: transacao com data futura                     |         0 |
+| completude: golpe LINK_FALSO sem dominio                  |         0 |
+| validade: alerta em Pix cancelado marcado como prosseguiu |         0 |
++-----------------------------------------------------------+-----------+
+8 rows in set
+
+--------------
+-- Parte B ---------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Cada teste tenta gravar um dado INVALIDO. O procedimento captura o erro
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- do MySQL (em vez de parar o script) e registra se o banco rejeitou.
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Resultado esperado: todas as linhas com "OK: rejeitado".
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+DROP PROCEDURE IF EXISTS pr_testar_rejeicao
+--------------
+
+Query OK, 0 rows affected, 1 warning
+
+--------------
+DROP TEMPORARY TABLE IF EXISTS teste_rejeicao
+--------------
+
+Query OK, 0 rows affected, 1 warning
+
+--------------
+CREATE TEMPORARY TABLE teste_rejeicao (
+    teste           VARCHAR(60),
+    resultado       VARCHAR(40),
+    mensagem_mysql  VARCHAR(255)
+)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE PROCEDURE pr_testar_rejeicao(IN p_teste VARCHAR(60), IN p_sql TEXT)
+BEGIN
+    DECLARE v_msg TEXT DEFAULT NULL;
+    DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+        GET DIAGNOSTICS CONDITION 1 v_msg = MESSAGE_TEXT;
+
+    START TRANSACTION;
+    SET @pg_sql = p_sql;
+    PREPARE st FROM @pg_sql;
+    EXECUTE st;
+    DEALLOCATE PREPARE st;
+    ROLLBACK;   -- garante que nada fica gravado, mesmo se o teste falhar
+
+    INSERT INTO teste_rejeicao (teste, resultado, mensagem_mysql)
+    VALUES (p_teste,
+            IF(v_msg IS NULL, 'FALHOU: dado invalido entrou', 'OK: rejeitado'),
+            COALESCE(LEFT(v_msg, 255), '-'));
+END
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CALL pr_testar_rejeicao('B1 Pix de valor negativo',
+  'INSERT INTO transacao (end_to_end_id, conta_origem_id, chave_destino_id, conta_destino_id, dispositivo_id, valor, data_hora, canal, status)
+   VALUES (''TESTE000000000000000000000000001'', 1, 2, 2, 1, -50.00, NOW(), ''APP'', ''CONCLUIDA'')')
+--------------
+
+Query OK, 1 row affected
+
+--------------
+CALL pr_testar_rejeicao('B2 Pix para a propria conta',
+  'INSERT INTO transacao (end_to_end_id, conta_origem_id, chave_destino_id, conta_destino_id, dispositivo_id, valor, data_hora, canal, status)
+   VALUES (''TESTE000000000000000000000000002'', 1, 1, 1, 1, 10.00, NOW(), ''APP'', ''CONCLUIDA'')')
+--------------
+
+Query OK, 1 row affected
+
+--------------
+CALL pr_testar_rejeicao('B3 Pix de conta inexistente',
+  'INSERT INTO transacao (end_to_end_id, conta_origem_id, chave_destino_id, conta_destino_id, dispositivo_id, valor, data_hora, canal, status)
+   VALUES (''TESTE000000000000000000000000003'', 999, 2, 2, 1, 10.00, NOW(), ''APP'', ''CONCLUIDA'')')
+--------------
+
+Query OK, 1 row affected
+
+--------------
+CALL pr_testar_rejeicao('B4 Denuncia duplicada',
+  'INSERT INTO denuncia (transacao_id, denunciante_id, chave_denunciada_id, tipo_golpe, data_denuncia)
+   SELECT transacao_id, denunciante_id, chave_denunciada_id, tipo_golpe, NOW() FROM denuncia ORDER BY id LIMIT 1')
+--------------
+
+Query OK, 1 row affected
+
+--------------
+CALL pr_testar_rejeicao('B5 Link falso sem dominio',
+  'INSERT INTO denuncia (transacao_id, denunciante_id, chave_denunciada_id, tipo_golpe, data_denuncia)
+   VALUES (1, 1, 2, ''LINK_FALSO'', NOW())')
+--------------
+
+Query OK, 1 row affected
+
+--------------
+CALL pr_testar_rejeicao('B6 UF em minusculas',
+  'INSERT INTO usuario (cpf_hash, apelido, faixa_etaria, uf, data_cadastro)
+   VALUES (SHA2(''cpf-teste'', 256), ''Teste'', ''30-44'', ''sp'', CURRENT_DATE)')
+--------------
+
+Query OK, 1 row affected
+
+--------------
+-- Resultado dos testes
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT * FROM teste_rejeicao
+--------------
+
++-----------------------------+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| teste                       | resultado     | mensagem_mysql                                                                                                                                                                 |
++-----------------------------+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| B1 Pix de valor negativo    | OK: rejeitado | Check constraint 'ck_tx_valor' is violated.                                                                                                                                    |
+| B2 Pix para a propria conta | OK: rejeitado | Check constraint 'ck_tx_contas' is violated.                                                                                                                                   |
+| B3 Pix de conta inexistente | OK: rejeitado | Cannot add or update a child row: a foreign key constraint fails (`pixguard`.`transacao`, CONSTRAINT `fk_tx_origem` FOREIGN KEY (`conta_origem_id`) REFERENCES `conta` (`id`)) |
+| B4 Denuncia duplicada       | OK: rejeitado | Duplicate entry '4096' for key 'denuncia.uq_den_tx'                                                                                                                            |
+| B5 Link falso sem dominio   | OK: rejeitado | Check constraint 'ck_den_link' is violated.                                                                                                                                    |
+| B6 UF em minusculas         | OK: rejeitado | Check constraint 'ck_usuario_uf' is violated.                                                                                                                                  |
++-----------------------------+---------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+6 rows in set
+
+--------------
+-- Prova de que nada entrou no banco
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT (SELECT COUNT(*) FROM transacao WHERE end_to_end_id LIKE 'TESTE%')
+     + (SELECT COUNT(*) FROM usuario   WHERE apelido = 'Teste') AS registros_de_teste_que_entraram
+--------------
+
++---------------------------------+
+| registros_de_teste_que_entraram |
++---------------------------------+
+|                               0 |
++---------------------------------+
+1 row in set
+
+--------------
+DROP PROCEDURE pr_testar_rejeicao
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+DROP TEMPORARY TABLE teste_rejeicao
+--------------
+
+Query OK, 0 rows affected
+
+Bye

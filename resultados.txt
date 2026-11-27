@@ -1,0 +1,1668 @@
+﻿--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- PixGuard - A3 Analise de Dados e Big Data
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- 01_schema.sql : modelo fisico (MySQL 8.4, InnoDB, utf8mb4)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Todos os dados do prototipo sao FICTICIOS.
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+DROP DATABASE IF EXISTS pixguard
+--------------
+
+Query OK, 0 rows affected, 1 warning
+
+--------------
+CREATE DATABASE pixguard CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci
+--------------
+
+Query OK, 1 row affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Instituicoes participantes do Pix (bancos / fintechs)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE instituicao (
+    id            SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    codigo_ispb   CHAR(8)      NOT NULL,
+    nome          VARCHAR(80)  NOT NULL,
+    CONSTRAINT uq_instituicao_ispb UNIQUE (codigo_ispb),
+    CONSTRAINT ck_instituicao_ispb CHECK (codigo_ispb REGEXP '^[0-9]{8}$')
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Usuarios (pseudonimizados: CPF guardado apenas como hash SHA-256)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE usuario (
+    id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    cpf_hash        CHAR(64)     NOT NULL,
+    apelido         VARCHAR(40)  NOT NULL,
+    faixa_etaria    ENUM('18-29','30-44','45-59','60+') NOT NULL,
+    uf              CHAR(2)      NOT NULL,
+    data_cadastro   DATE         NOT NULL,
+    status          ENUM('ATIVO','BLOQUEADO','ENCERRADO') NOT NULL DEFAULT 'ATIVO',
+    CONSTRAINT uq_usuario_cpf UNIQUE (cpf_hash),
+    CONSTRAINT ck_usuario_uf  CHECK (REGEXP_LIKE(uf, '^[A-Z]{2}$', 'c'))
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Contas bancarias
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE conta (
+    id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    usuario_id      INT UNSIGNED      NOT NULL,
+    instituicao_id  SMALLINT UNSIGNED NOT NULL,
+    agencia         CHAR(4)           NOT NULL,
+    numero          VARCHAR(12)       NOT NULL,
+    tipo            ENUM('CORRENTE','POUPANCA','PAGAMENTO') NOT NULL,
+    data_abertura   DATE              NOT NULL,
+    CONSTRAINT fk_conta_usuario     FOREIGN KEY (usuario_id)     REFERENCES usuario(id),
+    CONSTRAINT fk_conta_instituicao FOREIGN KEY (instituicao_id) REFERENCES instituicao(id),
+    CONSTRAINT uq_conta_numero UNIQUE (instituicao_id, agencia, numero)
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Chaves Pix (valor real nunca armazenado: so hash + versao mascarada)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE chave_pix (
+    id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    conta_id         INT UNSIGNED NOT NULL,
+    tipo             ENUM('CPF','CNPJ','EMAIL','TELEFONE','ALEATORIA') NOT NULL,
+    valor_hash       CHAR(64)     NOT NULL,
+    valor_mascarado  VARCHAR(40)  NOT NULL,
+    criada_em        DATETIME     NOT NULL,
+    ativa            BOOLEAN      NOT NULL DEFAULT TRUE,
+    CONSTRAINT fk_chave_conta FOREIGN KEY (conta_id) REFERENCES conta(id),
+    CONSTRAINT uq_chave_valor UNIQUE (valor_hash)
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Dispositivos (fingerprint do aparelho, em hash)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE dispositivo (
+    id                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    fingerprint_hash   CHAR(64)    NOT NULL,
+    sistema            ENUM('ANDROID','IOS','WEB') NOT NULL,
+    primeiro_uso       DATETIME    NOT NULL,
+    CONSTRAINT uq_dispositivo_fp UNIQUE (fingerprint_hash)
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Transacoes Pix (tabela fato, a que mais cresce)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE transacao (
+    id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    end_to_end_id     CHAR(32)       NOT NULL,
+    conta_origem_id   INT UNSIGNED   NOT NULL,
+    chave_destino_id  INT UNSIGNED   NOT NULL,
+    conta_destino_id  INT UNSIGNED   NOT NULL,
+    dispositivo_id    INT UNSIGNED   NOT NULL,
+    valor             DECIMAL(12,2)  NOT NULL,
+    data_hora         DATETIME       NOT NULL,
+    canal             ENUM('APP','INTERNET_BANKING','QR_CODE') NOT NULL,
+    status            ENUM('CONCLUIDA','CANCELADA','BLOQUEADA') NOT NULL,
+    score_risco       TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    CONSTRAINT fk_tx_origem      FOREIGN KEY (conta_origem_id)  REFERENCES conta(id),
+    CONSTRAINT fk_tx_chave       FOREIGN KEY (chave_destino_id) REFERENCES chave_pix(id),
+    CONSTRAINT fk_tx_destino     FOREIGN KEY (conta_destino_id) REFERENCES conta(id),
+    CONSTRAINT fk_tx_dispositivo FOREIGN KEY (dispositivo_id)   REFERENCES dispositivo(id),
+    CONSTRAINT uq_tx_e2e     UNIQUE (end_to_end_id),
+    CONSTRAINT ck_tx_valor   CHECK (valor > 0 AND valor <= 1000000),
+    CONSTRAINT ck_tx_score   CHECK (score_risco BETWEEN 0 AND 100),
+    CONSTRAINT ck_tx_contas  CHECK (conta_origem_id <> conta_destino_id)
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Indices pensados nas consultas de negocio:
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- historico de quem envia (perfil do pagador, janela de tempo)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE INDEX ix_tx_origem_data  ON transacao (conta_origem_id, data_hora)
+--------------
+
+Query OK, 0 rows affected
+Records: 0  Duplicates: 0  Warnings: 0
+
+--------------
+-- quanto uma chave recebeu e de quantas origens (deteccao de "conta laranja")
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE INDEX ix_tx_chave_data   ON transacao (chave_destino_id, data_hora)
+--------------
+
+Query OK, 0 rows affected
+Records: 0  Duplicates: 0  Warnings: 0
+
+--------------
+-- seguir o dinheiro (rede de contas) a partir da conta que recebeu
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE INDEX ix_tx_destino_data ON transacao (conta_destino_id, data_hora)
+--------------
+
+Query OK, 0 rows affected
+Records: 0  Duplicates: 0  Warnings: 0
+
+--------------
+-- relatorios por periodo
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE INDEX ix_tx_data         ON transacao (data_hora)
+--------------
+
+Query OK, 0 rows affected
+Records: 0  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Regras do motor de risco
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE regra_risco (
+    id         TINYINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    codigo     CHAR(3)      NOT NULL,
+    descricao  VARCHAR(120) NOT NULL,
+    peso       TINYINT UNSIGNED NOT NULL,
+    CONSTRAINT uq_regra_codigo UNIQUE (codigo),
+    CONSTRAINT ck_regra_peso   CHECK (peso BETWEEN 1 AND 100)
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Alertas exibidos ao usuario antes de confirmar o Pix
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE alerta (
+    id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    transacao_id        BIGINT UNSIGNED  NOT NULL,
+    regra_id            TINYINT UNSIGNED NOT NULL,
+    score               TINYINT UNSIGNED NOT NULL,
+    usuario_prosseguiu  BOOLEAN          NOT NULL,
+    criado_em           DATETIME         NOT NULL,
+    CONSTRAINT fk_alerta_tx    FOREIGN KEY (transacao_id) REFERENCES transacao(id),
+    CONSTRAINT fk_alerta_regra FOREIGN KEY (regra_id)     REFERENCES regra_risco(id),
+    CONSTRAINT uq_alerta_tx_regra UNIQUE (transacao_id, regra_id),
+    CONSTRAINT ck_alerta_score CHECK (score BETWEEN 0 AND 100)
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Denuncias de golpe feitas pelas vitimas
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE TABLE denuncia (
+    id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    transacao_id      BIGINT UNSIGNED NOT NULL,
+    denunciante_id    INT UNSIGNED    NOT NULL,
+    chave_denunciada_id INT UNSIGNED  NOT NULL,
+    tipo_golpe        ENUM('FALSO_PARENTE','FALSA_CENTRAL','LINK_FALSO','FALSA_VENDA','OUTRO') NOT NULL,
+    dominio_link      VARCHAR(120)    NULL,
+    data_denuncia     DATETIME        NOT NULL,
+    status            ENUM('EM_ANALISE','CONFIRMADA','IMPROCEDENTE') NOT NULL DEFAULT 'EM_ANALISE',
+    CONSTRAINT fk_den_tx      FOREIGN KEY (transacao_id)        REFERENCES transacao(id),
+    CONSTRAINT fk_den_usuario FOREIGN KEY (denunciante_id)      REFERENCES usuario(id),
+    CONSTRAINT fk_den_chave   FOREIGN KEY (chave_denunciada_id) REFERENCES chave_pix(id),
+    CONSTRAINT uq_den_tx UNIQUE (transacao_id),   -- uma denuncia por transacao (evita duplicata)
+    CONSTRAINT ck_den_link CHECK (tipo_golpe <> 'LINK_FALSO' OR dominio_link IS NOT NULL)
+) ENGINE=InnoDB
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE INDEX ix_den_chave_status ON denuncia (chave_denunciada_id, status)
+--------------
+
+Query OK, 0 rows affected
+Records: 0  Duplicates: 0  Warnings: 0
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- PixGuard - 02_dados.sql : carga de amostra 100% FICTICIA
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Gera dados de forma deterministica (sem RAND) para que o resultado
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- das consultas seja sempre o mesmo em qualquer computador.
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--   * 50 clientes comuns  (usuarios 1-50)  -> ~3.000 Pix legitimos
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--   * 8 contas "laranja"  (usuarios 51-58) -> recebem os golpes
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--   * 2 contas concentradoras (59-60)      -> recebem das laranjas
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--   * PixGuard entra em operacao em 09/11/2026 (alertas a partir dai)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SET SESSION cte_max_recursion_depth = 10000
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Tabela auxiliar de numeros 1..3000 (apagada no fim)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+DROP TEMPORARY TABLE IF EXISTS numeros
+--------------
+
+Query OK, 0 rows affected, 1 warning
+
+--------------
+CREATE TEMPORARY TABLE numeros (n INT UNSIGNED PRIMARY KEY)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO numeros (n)
+WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 3000)
+SELECT n FROM seq
+--------------
+
+Query OK, 3000 rows affected
+Records: 3000  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Instituicoes (nomes e ISPB inventados)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO instituicao (codigo_ispb, nome) VALUES
+ ('10000001', 'Banco Aurora'),
+ ('10000002', 'Banco Horizonte'),
+ ('10000003', 'Fintech Vela'),
+ ('10000004', 'Cooperativa Raiz'),
+ ('10000005', 'Banco Atlantico'),
+ ('10000006', 'PagFacil IP')
+--------------
+
+Query OK, 6 rows affected
+Records: 6  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Regras do motor de risco
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO regra_risco (codigo, descricao, peso) VALUES
+ ('R01', 'Chave de destino com denuncia confirmada', 40),
+ ('R02', 'Conta de destino aberta ha menos de 30 dias', 25),
+ ('R03', 'Valor acima de 3x a media do pagador', 20),
+ ('R04', 'Dispositivo usado por varias contas', 30),
+ ('R05', 'Horario atipico (22h as 6h)', 10)
+--------------
+
+Query OK, 5 rows affected
+Records: 5  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Usuarios (CPF so como hash; apelido no lugar do nome)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO usuario (id, cpf_hash, apelido, faixa_etaria, uf, data_cadastro, status)
+SELECT n,
+       SHA2(CONCAT('cpf-ficticio-', n), 256),
+       CONCAT('Cliente ', LPAD(n, 3, '0')),
+       ELT(n % 4 + 1, '18-29', '30-44', '45-59', '60+'),
+       ELT(n % 5 + 1, 'SP', 'RJ', 'MG', 'BA', 'PR'),
+       IF(n <= 50, DATE('2022-01-10') + INTERVAL (n * 17) DAY,
+                   DATE('2026-10-14') + INTERVAL (n - 50) DAY),
+       'ATIVO'
+FROM numeros WHERE n <= 60
+--------------
+
+Query OK, 60 rows affected
+Records: 60  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Contas (1 por usuario; contas 51-60 abertas em outubro/2026)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO conta (id, usuario_id, instituicao_id, agencia, numero, tipo, data_abertura)
+SELECT n, n,
+       n % 6 + 1,
+       LPAD(n % 9 + 1, 4, '0'),
+       CONCAT(LPAD(n * 7919 % 1000000, 6, '0'), '-', n % 10),
+       IF(n <= 50, ELT(n % 3 + 1, 'CORRENTE', 'POUPANCA', 'PAGAMENTO'), 'PAGAMENTO'),
+       IF(n <= 50, DATE('2022-01-10') + INTERVAL (n * 17 + 3) DAY,
+                   DATE('2026-10-15') + INTERVAL (n - 50) DAY)
+FROM numeros WHERE n <= 60
+--------------
+
+Query OK, 60 rows affected
+Records: 60  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Chaves Pix (1 por conta; laranjas usam chave aleatoria)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO chave_pix (id, conta_id, tipo, valor_hash, valor_mascarado, criada_em, ativa)
+SELECT c.id, c.id,
+       IF(c.id > 50, 'ALEATORIA', ELT(c.id % 4 + 1, 'CPF', 'EMAIL', 'TELEFONE', 'ALEATORIA')),
+       SHA2(CONCAT('chave-ficticia-', c.id), 256),
+       CONCAT('***', LPAD(c.id, 3, '0'), '***'),
+       TIMESTAMP(c.data_abertura) + INTERVAL 1 DAY,
+       TRUE
+FROM conta c
+--------------
+
+Query OK, 60 rows affected
+Records: 60  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Dispositivos: 1-50 = um por cliente; 51-52 = 2 celulares que operam
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- todas as contas laranja (sinal classico de quadrilha)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO dispositivo (id, fingerprint_hash, sistema, primeiro_uso)
+SELECT n,
+       SHA2(CONCAT('device-ficticio-', n), 256),
+       ELT(n % 3 + 1, 'ANDROID', 'IOS', 'WEB'),
+       IF(n <= 50, TIMESTAMP('2022-01-15') + INTERVAL (n * 17) DAY,
+                   TIMESTAMP('2026-10-16'))
+FROM numeros WHERE n <= 52
+--------------
+
+Query OK, 52 rows affected
+Records: 52  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- 3.000 Pix legitimos entre clientes comuns (01/10 a 23/11/2026)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- cada cliente paga sempre os mesmos 3 recebedores (padrao realista)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO transacao (end_to_end_id, conta_origem_id, chave_destino_id, conta_destino_id,
+                       dispositivo_id, valor, data_hora, canal, status, score_risco)
+SELECT CONCAT('E', LPAD(n, 31, '0')),
+       o, d, d, o,
+       ROUND(15 + (n * 37 % 485) + (n % 100) / 100, 2),
+       TIMESTAMP('2026-10-01 07:00:00') + INTERVAL (n * 1031 % (54 * 24 * 60)) MINUTE,
+       ELT(n % 4 + 1, 'APP', 'APP', 'QR_CODE', 'INTERNET_BANKING'),
+       'CONCLUIDA',
+       n * 17 % 30
+FROM (SELECT n,
+             (n * 7) % 50 + 1                              AS o,
+             (((n * 7) % 50 + 1) + (n % 3) * 7 + 2) % 50 + 1 AS d
+      FROM numeros) x
+--------------
+
+Query OK, 3000 rows affected
+Records: 3000  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- 150 Pix de golpe: vitima -> conta laranja (01/11 a 23/11/2026)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Apos 09/11 o PixGuard alerta; 1 em cada 3 vitimas desiste (CANCELADA)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO transacao (end_to_end_id, conta_origem_id, chave_destino_id, conta_destino_id,
+                       dispositivo_id, valor, data_hora, canal, status, score_risco)
+SELECT CONCAT('F', LPAD(n, 31, '0')),
+       v, m, m, v,
+       ROUND(250 + (n * 97 % 2750) + (n % 7) * 0.5, 2),
+       dh,
+       IF(n % 5 = 0, 'QR_CODE', 'APP'),
+       IF(dh >= '2026-11-09' AND n % 3 = 0, 'CANCELADA', 'CONCLUIDA'),
+       60 + n * 7 % 36
+FROM (SELECT n,
+             (n * 11) % 50 + 1 AS v,
+             51 + (n % 8)      AS m,
+             TIMESTAMP('2026-11-01') + INTERVAL ((n - 1) * 23 DIV 150) DAY
+                 + INTERVAL IF(n % 4 = 0, 10 + n % 6, 18 + n % 5) HOUR
+                 + INTERVAL (n * 7 % 60) MINUTE AS dh
+      FROM numeros WHERE n <= 150) x
+--------------
+
+Query OK, 150 rows affected
+Records: 150  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- 48 Pix de "lavagem": laranja -> concentradora, feitos de madrugada
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- a partir dos 2 dispositivos compartilhados
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO transacao (end_to_end_id, conta_origem_id, chave_destino_id, conta_destino_id,
+                       dispositivo_id, valor, data_hora, canal, status, score_risco)
+SELECT CONCAT('L', LPAD(n, 31, '0')),
+       51 + (n % 8),
+       59 + (n DIV 8) % 2,
+       59 + (n DIV 8) % 2,
+       51 + (n DIV 3) % 2,
+       ROUND(800 + (n * 131 % 2200), 2),
+       TIMESTAMP('2026-11-01 23:00:00') + INTERVAL ((n - 1) * 22 DIV 48) DAY
+           + INTERVAL (n * 13 % 50) MINUTE,
+       'INTERNET_BANKING',
+       'CONCLUIDA',
+       40 + n % 30
+FROM numeros WHERE n <= 48
+--------------
+
+Query OK, 48 rows affected
+Records: 48  Duplicates: 0  Warnings: 0
+
+--------------
+-- 4 transferencias entre as duas concentradoras (3o salto da rede)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO transacao (end_to_end_id, conta_origem_id, chave_destino_id, conta_destino_id,
+                       dispositivo_id, valor, data_hora, canal, status, score_risco)
+VALUES
+ (CONCAT('L', LPAD(901, 31, '0')), 59, 60, 60, 51, 9800.00, '2026-11-06 02:10:00', 'INTERNET_BANKING', 'CONCLUIDA', 55),
+ (CONCAT('L', LPAD(902, 31, '0')), 59, 60, 60, 51, 12450.00, '2026-11-12 02:40:00', 'INTERNET_BANKING', 'CONCLUIDA', 61),
+ (CONCAT('L', LPAD(903, 31, '0')), 59, 60, 60, 52, 8700.00, '2026-11-18 03:05:00', 'INTERNET_BANKING', 'CONCLUIDA', 58),
+ (CONCAT('L', LPAD(904, 31, '0')), 59, 60, 60, 52, 15100.00, '2026-11-22 01:55:00', 'INTERNET_BANKING', 'CONCLUIDA', 66)
+--------------
+
+Query OK, 4 rows affected
+Records: 4  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Denuncias: vitimas que concluiram o Pix de golpe (4 em cada 5 denunciam)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO denuncia (transacao_id, denunciante_id, chave_denunciada_id, tipo_golpe,
+                      dominio_link, data_denuncia, status)
+SELECT t.id,
+       t.conta_origem_id,              -- conta = usuario no prototipo
+       t.chave_destino_id,
+       ELT(x.n % 4 + 1, 'FALSO_PARENTE', 'FALSA_CENTRAL', 'LINK_FALSO', 'FALSA_VENDA'),
+       IF(x.n % 4 = 2,
+          ELT(x.n % 3 + 1, 'pix-premiado.example', 'atualiza-seguranca.example', 'taxa-entrega.example'),
+          NULL),
+       t.data_hora + INTERVAL (2 + x.n % 40) HOUR,
+       IF(x.n % 9 = 0, 'EM_ANALISE', 'CONFIRMADA')
+FROM transacao t
+JOIN (SELECT n FROM numeros WHERE n <= 150) x
+  ON t.end_to_end_id = CONCAT('F', LPAD(x.n, 31, '0'))
+WHERE t.status = 'CONCLUIDA' AND x.n % 5 <> 0
+--------------
+
+Query OK, 94 rows affected
+Records: 94  Duplicates: 0  Warnings: 0
+
+--------------
+-- 3 denuncias improcedentes (desacordo comercial, nao era golpe)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO denuncia (transacao_id, denunciante_id, chave_denunciada_id, tipo_golpe,
+                      dominio_link, data_denuncia, status)
+SELECT t.id, t.conta_origem_id, t.chave_destino_id, 'FALSA_VENDA', NULL,
+       t.data_hora + INTERVAL 1 DAY, 'IMPROCEDENTE'
+FROM transacao t
+WHERE t.end_to_end_id IN (CONCAT('E', LPAD(100, 31, '0')),
+                          CONCAT('E', LPAD(1500, 31, '0')),
+                          CONCAT('E', LPAD(2700, 31, '0')))
+--------------
+
+Query OK, 3 rows affected
+Records: 3  Duplicates: 0  Warnings: 0
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Alertas (somente a partir do lancamento, 09/11/2026)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- R02: toda transferencia para conta com menos de 30 dias
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO alerta (transacao_id, regra_id, score, usuario_prosseguiu, criado_em)
+SELECT t.id, (SELECT id FROM regra_risco WHERE codigo = 'R02'), t.score_risco,
+       t.status = 'CONCLUIDA', t.data_hora
+FROM transacao t JOIN conta c ON c.id = t.conta_destino_id
+WHERE t.data_hora >= '2026-11-09'
+  AND DATEDIFF(t.data_hora, c.data_abertura) < 30
+--------------
+
+Query OK, 94 rows affected
+Records: 94  Duplicates: 0  Warnings: 0
+
+--------------
+-- R01: chave que ja tinha denuncia confirmada antes da transacao
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO alerta (transacao_id, regra_id, score, usuario_prosseguiu, criado_em)
+SELECT t.id, (SELECT id FROM regra_risco WHERE codigo = 'R01'), LEAST(t.score_risco + 5, 100),
+       t.status = 'CONCLUIDA', t.data_hora
+FROM transacao t
+WHERE t.data_hora >= '2026-11-09'
+  AND EXISTS (SELECT 1 FROM denuncia d
+              WHERE d.chave_denunciada_id = t.chave_destino_id
+                AND d.status = 'CONFIRMADA'
+                AND d.data_denuncia < t.data_hora)
+--------------
+
+Query OK, 97 rows affected
+Records: 97  Duplicates: 0  Warnings: 0
+
+--------------
+-- R04: Pix feito de dispositivo usado por 3+ contas diferentes
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO alerta (transacao_id, regra_id, score, usuario_prosseguiu, criado_em)
+SELECT t.id, (SELECT id FROM regra_risco WHERE codigo = 'R04'), t.score_risco,
+       t.status = 'CONCLUIDA', t.data_hora
+FROM transacao t
+WHERE t.data_hora >= '2026-11-09'
+  AND t.dispositivo_id IN (SELECT dispositivo_id FROM transacao
+                           GROUP BY dispositivo_id
+                           HAVING COUNT(DISTINCT conta_origem_id) >= 3)
+--------------
+
+Query OK, 33 rows affected
+Records: 33  Duplicates: 0  Warnings: 0
+
+--------------
+-- R03: falsos positivos - Pix legitimos de valor alto (cliente seguiu em frente)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+INSERT INTO alerta (transacao_id, regra_id, score, usuario_prosseguiu, criado_em)
+SELECT t.id, (SELECT id FROM regra_risco WHERE codigo = 'R03'), 55, TRUE, t.data_hora
+FROM transacao t
+WHERE t.data_hora >= '2026-11-09'
+  AND t.end_to_end_id LIKE 'E%'
+  AND t.valor >= 480
+--------------
+
+Query OK, 36 rows affected
+Records: 36  Duplicates: 0  Warnings: 0
+
+--------------
+-- Contas concentradoras bloqueadas apos investigacao
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+UPDATE usuario SET status = 'BLOQUEADO' WHERE id IN (59, 60)
+--------------
+
+Query OK, 2 rows affected
+Rows matched: 2  Changed: 2  Warnings: 0
+
+--------------
+DROP TEMPORARY TABLE numeros
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Resumo da carga
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT 'instituicao' AS tabela, COUNT(*) AS linhas FROM instituicao
+UNION ALL SELECT 'usuario',     COUNT(*) FROM usuario
+UNION ALL SELECT 'conta',       COUNT(*) FROM conta
+UNION ALL SELECT 'chave_pix',   COUNT(*) FROM chave_pix
+UNION ALL SELECT 'dispositivo', COUNT(*) FROM dispositivo
+UNION ALL SELECT 'transacao',   COUNT(*) FROM transacao
+UNION ALL SELECT 'denuncia',    COUNT(*) FROM denuncia
+UNION ALL SELECT 'regra_risco', COUNT(*) FROM regra_risco
+UNION ALL SELECT 'alerta',      COUNT(*) FROM alerta
+--------------
+
++-------------+--------+
+| tabela      | linhas |
++-------------+--------+
+| instituicao |      6 |
+| usuario     |     60 |
+| conta       |     60 |
+| chave_pix   |     60 |
+| dispositivo |     52 |
+| transacao   |   3202 |
+| denuncia    |     97 |
+| regra_risco |      5 |
+| alerta      |    260 |
++-------------+--------+
+9 rows in set
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- PixGuard - 03_governanca.sql : views de acesso minimo + papeis (LGPD)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- View analitica: sem hashes de CPF, chave ou dispositivo.
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- E o que o time de analise de dados enxerga.
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE OR REPLACE VIEW vw_transacao_analitica AS
+SELECT t.id              AS transacao_id,
+       t.data_hora,
+       t.valor,
+       t.canal,
+       t.status,
+       t.score_risco,
+       uo.faixa_etaria   AS faixa_etaria_pagador,
+       uo.uf             AS uf_pagador,
+       DATEDIFF(t.data_hora, cd.data_abertura) AS idade_conta_destino_dias,
+       (SELECT COUNT(*) FROM alerta a WHERE a.transacao_id = t.id) AS qtd_alertas,
+       d.tipo_golpe,
+       d.status          AS status_denuncia
+FROM transacao t
+JOIN conta   co ON co.id = t.conta_origem_id
+JOIN usuario uo ON uo.id = co.usuario_id
+JOIN conta   cd ON cd.id = t.conta_destino_id
+LEFT JOIN denuncia d ON d.transacao_id = t.id
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- View de reputacao de chave: o que o app consulta antes de cada Pix.
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+CREATE OR REPLACE VIEW vw_reputacao_chave AS
+SELECT c.id AS chave_id,
+       c.valor_hash,
+       c.valor_mascarado,
+       DATEDIFF(CURRENT_DATE, ct.data_abertura) AS idade_conta_dias,
+       COUNT(CASE WHEN d.status = 'CONFIRMADA' THEN 1 END) AS denuncias_confirmadas,
+       COUNT(CASE WHEN d.status = 'EM_ANALISE' THEN 1 END) AS denuncias_em_analise
+FROM chave_pix c
+JOIN conta ct ON ct.id = c.conta_id
+LEFT JOIN denuncia d ON d.chave_denunciada_id = c.id
+GROUP BY c.id, c.valor_hash, c.valor_mascarado, ct.data_abertura
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Papeis com privilegio minimo
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+DROP ROLE IF EXISTS pixguard_analista, pixguard_motor_risco, pixguard_suporte
+--------------
+
+Query OK, 0 rows affected, 3 warnings
+
+--------------
+CREATE ROLE pixguard_analista, pixguard_motor_risco, pixguard_suporte
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Analista: so le dados pseudonimizados pela view
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+GRANT SELECT ON pixguard.vw_transacao_analitica TO pixguard_analista
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Motor de risco (a API): consulta reputacao e grava transacoes/alertas
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+GRANT SELECT ON pixguard.vw_reputacao_chave TO pixguard_motor_risco
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+GRANT SELECT, INSERT ON pixguard.transacao  TO pixguard_motor_risco
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+GRANT SELECT, INSERT ON pixguard.alerta     TO pixguard_motor_risco
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+GRANT SELECT ON pixguard.regra_risco        TO pixguard_motor_risco
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- Suporte: registra e acompanha denuncias, sem ver transacoes de terceiros
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+GRANT SELECT, INSERT, UPDATE ON pixguard.denuncia TO pixguard_suporte
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT 'views e papeis criados' AS status
+--------------
+
++------------------------+
+| status                 |
++------------------------+
+| views e papeis criados |
++------------------------+
+1 row in set
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- PixGuard - 04_consultas.sql : 8 consultas que respondem as perguntas
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- de negocio. Data de referencia do relatorio: 24/11/2026.
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- =====================================================================
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SET @lancamento = '2026-11-09'
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SET @referencia = '2026-11-24'
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C1. Quais chaves Pix concentram mais golpes confirmados e quanto
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--     dinheiro elas receberam das vitimas?
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT c.id                                   AS chave_id,
+       c.valor_mascarado                      AS chave,
+       ct.data_abertura                       AS conta_aberta_em,
+       COUNT(*)                               AS golpes_confirmados,
+       SUM(t.valor)                           AS prejuizo_vitimas_rs,
+       DATEDIFF(MIN(d.data_denuncia), ct.data_abertura) AS dias_ate_1a_denuncia
+FROM denuncia d
+JOIN chave_pix c ON c.id = d.chave_denunciada_id
+JOIN conta ct    ON ct.id = c.conta_id
+JOIN transacao t ON t.id = d.transacao_id
+WHERE d.status = 'CONFIRMADA'
+GROUP BY c.id, c.valor_mascarado, ct.data_abertura
+ORDER BY golpes_confirmados DESC, prejuizo_vitimas_rs DESC
+LIMIT 10
+--------------
+
++----------+-----------+-----------------+--------------------+---------------------+----------------------+
+| chave_id | chave     | conta_aberta_em | golpes_confirmados | prejuizo_vitimas_rs | dias_ate_1a_denuncia |
++----------+-----------+-----------------+--------------------+---------------------+----------------------+
+|       51 | ***051*** | 2026-10-16      |                 12 |            21668.00 |                   17 |
+|       54 | ***054*** | 2026-10-19      |                 12 |            20508.50 |                   14 |
+|       56 | ***056*** | 2026-10-21      |                 11 |            18214.50 |                   13 |
+|       52 | ***052*** | 2026-10-17      |                 11 |            17055.00 |                   15 |
+|       55 | ***055*** | 2026-10-20      |                 11 |            16376.00 |                   12 |
+|       53 | ***053*** | 2026-10-18      |                 11 |            16147.00 |                   15 |
+|       58 | ***058*** | 2026-10-23      |                 11 |            16046.00 |                   10 |
+|       57 | ***057*** | 2026-10-22      |                 11 |            13431.00 |                   11 |
++----------+-----------+-----------------+--------------------+---------------------+----------------------+
+8 rows in set
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C2. Quais tipos de golpe sao mais comuns e quais causam mais prejuizo?
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT d.tipo_golpe,
+       COUNT(*)                                         AS denuncias,
+       ROUND(100 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct_denuncias,
+       SUM(t.valor)                                     AS prejuizo_rs,
+       ROUND(AVG(t.valor), 2)                           AS ticket_medio_rs
+FROM denuncia d
+JOIN transacao t ON t.id = d.transacao_id
+WHERE d.status = 'CONFIRMADA'
+GROUP BY d.tipo_golpe
+ORDER BY prejuizo_rs DESC
+--------------
+
++---------------+-----------+---------------+-------------+-----------------+
+| tipo_golpe    | denuncias | pct_denuncias | prejuizo_rs | ticket_medio_rs |
++---------------+-----------+---------------+-------------+-----------------+
+| FALSO_PARENTE |        23 |          25.6 |    38044.00 |         1654.09 |
+| FALSA_VENDA   |        23 |          25.6 |    36554.50 |         1589.33 |
+| FALSA_CENTRAL |        22 |          24.4 |    35269.50 |         1603.16 |
+| LINK_FALSO    |        22 |          24.4 |    29578.00 |         1344.45 |
++---------------+-----------+---------------+-------------+-----------------+
+4 rows in set
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C3. Quais contas tem comportamento de "conta laranja"?
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--     (conta com menos de 30 dias recebendo de 5+ pagadores diferentes
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--      nos ultimos 14 dias)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT t.conta_destino_id                            AS conta_id,
+       ct.data_abertura,
+       DATEDIFF(@referencia, ct.data_abertura)       AS idade_conta_dias,
+       COUNT(DISTINCT t.conta_origem_id)             AS pagadores_distintos,
+       COUNT(*)                                      AS pix_recebidos,
+       SUM(t.valor)                                  AS total_recebido_rs
+FROM transacao t
+JOIN conta ct ON ct.id = t.conta_destino_id
+WHERE t.status = 'CONCLUIDA'
+  AND t.data_hora >= @referencia - INTERVAL 14 DAY
+GROUP BY t.conta_destino_id, ct.data_abertura
+HAVING pagadores_distintos >= 5
+   AND MIN(DATEDIFF(t.data_hora, ct.data_abertura)) < 30
+ORDER BY pagadores_distintos DESC
+--------------
+
++----------+---------------+------------------+---------------------+---------------+-------------------+
+| conta_id | data_abertura | idade_conta_dias | pagadores_distintos | pix_recebidos | total_recebido_rs |
++----------+---------------+------------------+---------------------+---------------+-------------------+
+|       60 | 2026-10-25    |               30 |                   9 |            19 |          70658.00 |
+|       52 | 2026-10-17    |               38 |                   8 |             8 |          11994.00 |
+|       55 | 2026-10-20    |               35 |                   8 |             8 |          11570.00 |
+|       56 | 2026-10-21    |               34 |                   8 |             8 |          14740.50 |
+|       57 | 2026-10-22    |               33 |                   8 |             8 |           9664.50 |
+|       59 | 2026-10-24    |               31 |                   8 |            12 |          19938.00 |
+|       51 | 2026-10-16    |               39 |                   7 |             7 |          13073.50 |
+|       53 | 2026-10-18    |               37 |                   7 |             7 |          12037.50 |
+|       54 | 2026-10-19    |               36 |                   7 |             7 |          12364.00 |
+|       58 | 2026-10-23    |               32 |                   7 |             7 |           9997.00 |
++----------+---------------+------------------+---------------------+---------------+-------------------+
+10 rows in set
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C4. Para onde foi o dinheiro? Rede de contas a partir da chave mais
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--     denunciada, seguindo ate 3 saltos (CTE recursiva).
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+WITH RECURSIVE
+inicio AS (
+    SELECT c.conta_id
+    FROM denuncia d JOIN chave_pix c ON c.id = d.chave_denunciada_id
+    WHERE d.status = 'CONFIRMADA'
+    GROUP BY c.conta_id
+    ORDER BY COUNT(*) DESC, c.conta_id
+    LIMIT 1
+),
+rede (conta_id, salto, caminho) AS (
+    SELECT conta_id, 0, CAST(conta_id AS CHAR(200)) FROM inicio
+    UNION DISTINCT
+    SELECT t.conta_destino_id, r.salto + 1, CONCAT(r.caminho, ' > ', t.conta_destino_id)
+    FROM rede r
+    JOIN transacao t ON t.conta_origem_id = r.conta_id AND t.status = 'CONCLUIDA'
+    WHERE r.salto < 3
+      AND FIND_IN_SET(t.conta_destino_id, REPLACE(r.caminho, ' > ', ',')) = 0
+)
+SELECT r.salto,
+       r.caminho                         AS caminho_do_dinheiro,
+       u.apelido                         AS titular_final,
+       u.status                          AS status_titular,
+       (SELECT SUM(t.valor) FROM transacao t
+         WHERE t.conta_destino_id = r.conta_id AND t.status = 'CONCLUIDA') AS total_recebido_rs
+FROM rede r
+JOIN conta c   ON c.id = r.conta_id
+JOIN usuario u ON u.id = c.usuario_id
+ORDER BY r.salto, r.caminho
+--------------
+
++-------+---------------------+---------------+----------------+-------------------+
+| salto | caminho_do_dinheiro | titular_final | status_titular | total_recebido_rs |
++-------+---------------------+---------------+----------------+-------------------+
+|     0 | 51                  | Cliente 051   | ATIVO          |          25562.00 |
+|     1 | 51 > 59             | Cliente 059   | BLOQUEADO      |          36196.00 |
+|     1 | 51 > 60             | Cliente 060   | BLOQUEADO      |          98910.00 |
+|     2 | 51 > 59 > 60        | Cliente 060   | BLOQUEADO      |          98910.00 |
++-------+---------------------+---------------+----------------+-------------------+
+4 rows in set
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C5. Existe um mesmo aparelho movimentando varias contas? (quadrilha)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT t.dispositivo_id,
+       dv.sistema,
+       COUNT(DISTINCT t.conta_origem_id)                                   AS contas_operadas,
+       GROUP_CONCAT(DISTINCT t.conta_origem_id ORDER BY t.conta_origem_id) AS lista_contas,
+       COUNT(*)                                                            AS pix_enviados,
+       SUM(t.valor)                                                        AS valor_movimentado_rs
+FROM transacao t
+JOIN dispositivo dv ON dv.id = t.dispositivo_id
+GROUP BY t.dispositivo_id, dv.sistema
+HAVING contas_operadas >= 3
+ORDER BY contas_operadas DESC
+--------------
+
++----------------+---------+-----------------+----------------------------+--------------+----------------------+
+| dispositivo_id | sistema | contas_operadas | lista_contas               | pix_enviados | valor_movimentado_rs |
++----------------+---------+-----------------+----------------------------+--------------+----------------------+
+|             51 | ANDROID |               9 | 51,52,53,54,55,56,57,58,59 |           26 |             66306.00 |
+|             52 | IOS     |               9 | 51,52,53,54,55,56,57,58,59 |           26 |             68800.00 |
++----------------+---------+-----------------+----------------------------+--------------+----------------------+
+2 rows in set
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C6. KPI principal: o alerta do PixGuard faz a vitima desistir?
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--     Quanto dinheiro foi protegido desde o lancamento?
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+WITH tx_alertada AS (
+    SELECT t.id, t.valor, t.end_to_end_id,
+           MAX(a.usuario_prosseguiu) AS prosseguiu,
+           EXISTS (SELECT 1 FROM denuncia d
+                   WHERE d.transacao_id = t.id AND d.status <> 'IMPROCEDENTE') AS virou_denuncia
+    FROM transacao t
+    JOIN alerta a ON a.transacao_id = t.id
+    WHERE t.conta_origem_id <= 50          -- so Pix feitos por clientes comuns
+    GROUP BY t.id, t.valor, t.end_to_end_id
+)
+SELECT COUNT(*)                                               AS pix_alertados,
+       SUM(prosseguiu = 0)                                    AS desistencias,
+       ROUND(100 * AVG(prosseguiu = 0), 1)                    AS taxa_desistencia_pct,
+       SUM(CASE WHEN prosseguiu = 0 THEN valor ELSE 0 END)    AS valor_protegido_rs,
+       SUM(prosseguiu = 1 AND virou_denuncia)                 AS golpes_mesmo_com_alerta,
+       SUM(prosseguiu = 1 AND NOT virou_denuncia
+           AND end_to_end_id LIKE 'E%')                       AS falsos_positivos
+FROM tx_alertada
+--------------
+
++---------------+--------------+----------------------+--------------------+-------------------------+------------------+
+| pix_alertados | desistencias | taxa_desistencia_pct | valor_protegido_rs | golpes_mesmo_com_alerta | falsos_positivos |
++---------------+--------------+----------------------+--------------------+-------------------------+------------------+
+|           133 |           33 |                 24.8 |           51550.50 |                      51 |               36 |
++---------------+--------------+----------------------+--------------------+-------------------------+------------------+
+1 row in set
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C7. Quem sao as vitimas mais frequentes e em que horario o golpe
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--     acontece? (direciona campanhas de prevencao)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT u.faixa_etaria,
+       SUM(HOUR(t.data_hora) BETWEEN 6 AND 11)  AS manha,
+       SUM(HOUR(t.data_hora) BETWEEN 12 AND 17) AS tarde,
+       SUM(HOUR(t.data_hora) >= 18 OR HOUR(t.data_hora) < 6) AS noite,
+       COUNT(*)                                 AS total_golpes,
+       SUM(t.valor)                             AS prejuizo_rs
+FROM denuncia d
+JOIN transacao t ON t.id = d.transacao_id
+JOIN usuario u   ON u.id = d.denunciante_id
+WHERE d.status = 'CONFIRMADA'
+GROUP BY u.faixa_etaria
+ORDER BY total_golpes DESC
+--------------
+
++--------------+-------+-------+-------+--------------+-------------+
+| faixa_etaria | manha | tarde | noite | total_golpes | prejuizo_rs |
++--------------+-------+-------+-------+--------------+-------------+
+| 30-44        |     2 |    11 |    11 |           24 |    38319.00 |
+| 45-59        |     0 |     0 |    23 |           23 |    34820.50 |
+| 18-29        |     0 |     0 |    22 |           22 |    37003.50 |
+| 60+          |     1 |     9 |    11 |           21 |    29303.00 |
++--------------+-------+-------+-------+--------------+-------------+
+4 rows in set
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- C8. Evolucao semanal: tentativas de golpe x golpes concretizados
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+--     antes e depois do lancamento do PixGuard (09/11/2026)
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+-- ---------------------------------------------------------------------
+--------------
+
+Query OK, 0 rows affected
+
+--------------
+SELECT DATE(t.data_hora - INTERVAL WEEKDAY(t.data_hora) DAY) AS semana_inicio,
+       IF(MIN(t.data_hora) >= @lancamento, 'com PixGuard', 'sem PixGuard') AS fase,
+       COUNT(*)                               AS tentativas_golpe,
+       SUM(t.status = 'CANCELADA')            AS evitados,
+       SUM(t.status = 'CONCLUIDA')            AS concretizados,
+       SUM(CASE WHEN t.status = 'CONCLUIDA' THEN t.valor ELSE 0 END) AS prejuizo_rs
+FROM transacao t
+WHERE t.end_to_end_id LIKE 'F%'
+GROUP BY semana_inicio
+ORDER BY semana_inicio
+--------------
+
++---------------+--------------+------------------+----------+---------------+-------------+
+| semana_inicio | fase         | tentativas_golpe | evitados | concretizados | prejuizo_rs |
++---------------+--------------+------------------+----------+---------------+-------------+
+| 2026-10-26    | sem PixGuard |                7 |        0 |             7 |     4476.50 |
+| 2026-11-02    | sem PixGuard |               46 |        0 |            46 |    78909.00 |
+| 2026-11-09    | com PixGuard |               45 |       15 |            30 |    45910.00 |
+| 2026-11-16    | com PixGuard |               46 |       16 |            30 |    53109.50 |
+| 2026-11-23    | com PixGuard |                6 |        2 |             4 |     3043.00 |
++---------------+--------------+------------------+----------+---------------+-------------+
+5 rows in set
+
+Bye
